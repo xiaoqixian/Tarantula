@@ -26,7 +26,7 @@ def create_pool(loop, **kw):
         password = kw['password'],
         db = kw['db'], # 要连接的数据库名
         charset = kw.get('charset', 'utf8'),
-        autocommit = kw.get('autocommit', True) #True为default值
+        autocommit = kw.get('autocommit', True), #True为default值
         maxsize = kw.get('maxsize', 10),
         minsize = kw.get('minsize', 1),
         loop = loop
@@ -85,10 +85,19 @@ class Field(object):
         self.name = name
         self.column_type = column_type
         self.primary_key = primary_key
-        self.default = default
+        self.default = default # default在这里是函数
 
     def __str__(self):
         return '<%s, %s:%s>' % (self.__class__.__name__, self.column_type, self.name)
+
+"""
+用到的SQL通用数据类型：
+varchar：可变长度
+boolean:
+bigint：整数值，无小数点，精度19
+real:近似数值，尾数精度7
+text:用于存储文本，最大可存储2^31-1个字符也就是10GiB左右的文本
+"""
 
 class StringField(Field):
 
@@ -97,7 +106,7 @@ class StringField(Field):
 
 class BooleanField(Field):
 
-    def __init__(self, name = None, default = None):
+    def __init__(self, name = None, default = False):
         super().__init__(name, 'boolean', False, default)
 
 class IntegerField(Field):
@@ -105,9 +114,15 @@ class IntegerField(Field):
     def __init__(self, name = None, primary_key = False,default = 0):
         super().__init__(name, 'bigint', primary_key, default)
 
+class FloatField(Field):
+
+    def __init__(self, name = None, primary_key = False, default = 0.0):
+        super().__init__(name, 'real', primary_key, default)
+
 class TextField(Field):
 
     def __init__(self, name = None, default = None):
+        # name, column_type, primary_key, default
         super().__init__(name, 'text', False, default)
 
 
@@ -146,7 +161,7 @@ class ModelMetaclass(type):
         if not primaryKey:
             raise StandardError('primaryKey not found')
         for k in mappings.keys():
-            attr.pop(k)
+            attrs.pop(k)
         escaped_fields = list(map(lambda f: '`%s`' % f, fields))
         # map函数可以根据提供的函数对指定序列做映射
         attrs['__mappings__'] = mappings
