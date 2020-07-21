@@ -1,281 +1,118 @@
-"""
-orm.py是本项目的ORM框架，通过Python对象直接操作数据库
-"""
-
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# > Author     : lunar
+# > Email       : lunar_ubuntu@qq.com
+# > Create Time: Tue 21 Jul 2020 03:17:12 PM CST
 
-import asyncio, logging
+# 首先编写一个ORM框架，利用Python对象进行数据库的增删改查。
+# 项目用数据库tara中有三个表：users,blogs,comments。相信看名字就知道是用来放什么的。
+# 所以相应就要准备三个类，一个类对应一个表，一个类属性对应一列，类方法对应相应的数据库行为。
+
+# 一开始我是这么想的，但是发现每个表进行的增删改查的方法其实都大同小异。所以还是将这些方法作为一个
+# 函数写出来。这些函数均接受一个sql语句参数，sql语句进行匹配的参数
 
 import aiomysql
 
-def log(sql, args = ()):
-    logging.info('SQL: %s' % sql)
+import logging; logging.basicConfig(format = "%(levelname)-8s [%(filename)s:%(lineno)d] %(message)s", level = logging.INFO)
 
-# 通过aiomysql的create_pool函数可以创建一个数据库连接池，保持一定数量的连接
-# 防止对数据库频繁地创建连接。
-# minsize和maxsize分别表示连接池连接对象的上下限
-@asyncio.coroutine
-def create_pool(loop, **kw):
-    logging.info('create database connection pool...')
+# 创建连接池函数,kw用于存放关于连接数据库的配置参数
+async def create_pool(loop, **kw):
+    logging.info("create connection pool")
     global __pool
-    __pool = yield from aiomysql.create_pool(
+    __pool = await aiomysql.create_pool (
         host = kw.get('host', 'localhost'),
         port = kw.get('port', 3306),
         user = kw['user'],
         password = kw['password'],
-        db = kw['db'], # 要连接的数据库名
+        db = kw['db'],
         charset = kw.get('charset', 'utf8'),
-        autocommit = kw.get('autocommit', True), #True为default值
+        autocommit = kw.get('autocommit', True),
         maxsize = kw.get('maxsize', 10),
-        minsize = kw.get('minsize', 1),
+        minsize = kw.get('minsize', 5),
         loop = loop
     )
 
+def log_sql(sql):
+    logging.info("SQL: %s" % sql)
 
-@asyncio.coroutine
-def select(sql, args, size = None):
-    log(sql, args)
+async def select(sql, args, size = None):
+    log_sql(sql)
     global __pool
-    with (yield from __pool) as conn:
-        #DictCursor:A cursor which returns results as a dictionary
-        cur = yield from conn.cursor(aiomysql.DictCursor)
-        yield from cur.execute(sql.replace('?', '%s'), args or ())
-        # SQL语句的占位符是？，而MYSQL的占位符是%s，select函数在内部自动替换
-        # 始终坚持使用带参数的SQL，而不是自己拼接字符串，可以放置SQL注入攻击
-        # args中则是真正要填入的数据
+    with await __pool as conn:
+        cur = await conn.cursor(aiomysql.DictCursor)
+        # 要将SQL语句中的?换成%s，因为aiomysql使用%s作为占位符
+        await conn.execute(sql.replace('?', '%s'), args or ())
         if size:
-            rs = yield from cur.fetchmany(size)
+            res = await cur.fetchmany(size)
         else:
-            rs = yield from cur.fetchall()
-        yield from cur.close()
-        logging.info("rows returned: %s" % len(rs))
-        return rs
+            res = await cur.fetchAll()
+        await conn.close()
+        logging.info("rows affected: %d", size)
+        return res
 
-@asyncio.coroutine
-def execute(sql, args, autocommit = True) -> int:
-    log(sql)
-    with (yield from __pool) as conn:
+# 一个execute函数可以适配insert、update、delete三种动作，分别为
+# 'insert into table (?,?,?,?) values (?,?,?,?)'
+# 'delete from table where `%s`=?'
+# 'update table set () where `%s`=?'
+async def execute(sql, args, autocommit = True):
+    log_sql(sql)
+    global __pool
+    with await __pool as conn:
         if not autocommit:
-            # a coroutine to begin transaction
-            yield from conn.begin()
+            await conn.begin()
         try:
-            cur = yield from conn.cursor()
-            yield from cur.execute(sql.replace('?', '%s'), args)
-            affected = cur.rowcount # 受到影响的行数
-            yield from cur.close()
+            cur = await conn.cursor()
+            await cur.execute(sql.replace("?", "%s"), args)
+            affected = cur.rowcount
+            await cur.close()
             if not autocommit:
-                yield from conn.commit()
+                await conn.commit()
         except BaseException as e:
             if not autocommit:
-                # Roll back to the current transaction coroutine
-                yield from conn.rollback()
+                await from conn.rollback()
             raise
         return affected
 
-def create_args_string(num):
-    L = []
-    for n in range(num):
-        L.append('?')
-    return ','.join(L)
 
+# 接下来就是创建field了，每个field对应表中的一列，每一列有名字、数据类型、是否是主键以及默认值是多少
+# Field是所有field的父类
 class Field(object):
 
     def __init__(self, name, column_type, primary_key, default):
         self.name = name
         self.column_type = column_type
         self.primary_key = primary_key
-        self.default = default # default在这里是函数
+        self.default = default
 
+    # 创建一个方便打印的__str__方法
     def __str__(self):
-        return '<%s, %s:%s>' % (self.__class__.__name__, self.column_type, self.name)
+        return "<%s, %s: %s>" % (self.__class__.__name__, self.column_type, self.name)
 
-"""
-用到的SQL通用数据类型：
-varchar：可变长度
-boolean:
-bigint：整数值，无小数点，精度19
-real:近似数值，尾数精度7
-text:用于存储文本，最大可存储2^31-1个字符也就是10GiB左右的文本
-"""
-
+# 再看看本项目数据表需要用到的数据类型：varchar、int、text、double、bool
+# 所以分别创建以下子类
 class StringField(Field):
 
-    def __init__(self, name = None, primary_key = False, default = None, ddl = 'varchar(100)'):
-        super().__init__(name, ddl, primary_key, default)
+    def __init__(self, name = None, column_type = "varchar(50)", primary_key = False, default = None):
+        super().__init__(name, column_type, primary_key, default)
 
-class BooleanField(Field):
+class BoolField(Field):
 
     def __init__(self, name = None, default = False):
-        super().__init__(name, 'boolean', False, default)
+        super().__init__(name, "boolean", False, default)
 
 class IntegerField(Field):
 
-    def __init__(self, name = None, primary_key = False,default = 0):
-        super().__init__(name, 'bigint', primary_key, default)
-
-class FloatField(Field):
-
-    def __init__(self, name = None, primary_key = False, default = 0.0):
-        super().__init__(name, 'real', primary_key, default)
+    def __init__(self, name = None, primary_key = False, default = None):
+        super().__init__(name, "bigint", primary_key, default)
 
 class TextField(Field):
 
     def __init__(self, name = None, default = None):
-        # name, column_type, primary_key, default
-        super().__init__(name, 'text', False, default)
+        super().__init__(name, "text", False, default)
 
+class FloatField(Field):
 
-# 这个继承了type的ModelMetaclass就非常麻烦了。
-# 参考这个：http://c.biancheng.net/view/2293.html
-# 通过metaclass将具体的子类的映射信息读取出来
-# 参考了那个metaclass的教程就知道，所以继承了Model类的子类包括Model类自己在
-# 实例化时都会执行一边ModelMetaClass中的__new__方法。
-# 而在这个方法中，可以自动扫描映射关系，并存储到自身的类属性中
-class ModelMetaclass(type):
-
-    def __new__(cls, name, bases, attrs):
-        # cls代表动态修改的类
-        # name代表动态修改的类名
-        # bases代表动态修改的类的所有父类
-        # attrs代表被动态修改的类的所有属性、方法组成的字典
-        if name == 'Model':
-            return type.__new__(cls, name, bases, attrs)
-        tableName = attrs.get('__table__', None) or name
-        # 在变量赋值时用or，与条件判断中相同
-        logging.info('found model: %s (table: %s)' % (name, tableName))
-        mappings = dict()
-        fields = []
-        primaryKey = None
-        for k,v in attrs.items():
-            if isinstance(v, Field):
-                logging.info('    found mapping: %s ==> %s' % (k, v))
-                mappings[k] = v
-                if v.primary_key:
-                    #找到主键
-                    if primaryKey:
-                        raise StandardError('Duplicate primary key for field: %s' % k)
-                    primaryKey = k
-                else:
-                    fields.append(k)
-        if not primaryKey:
-            raise StandardError('primaryKey not found')
-        for k in mappings.keys():
-            attrs.pop(k)
-        escaped_fields = list(map(lambda f: '`%s`' % f, fields))
-        # map函数可以根据提供的函数对指定序列做映射
-        attrs['__mappings__'] = mappings
-        attrs['__table__'] = tableName
-        attrs['__primary_key__'] = primaryKey
-        attrs['__fields__'] = fields
-        attrs['__select__'] = 'select `%s`, %s from `%s`' % (primaryKey, ','.join(escaped_fields), tableName)
-        attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (tableName, ','.join(escaped_fields), primaryKey, create_args_string(len(escaped_fields) + 1))
-        attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (tableName, ','.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primaryKey)
-        attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (tableName, primaryKey)
-        return type.__new__(cls, name, bases, attrs)
-
-# Model是所有ORM映射的基类
-# 由于Model继承了dict类，所以可以像字典那样去调用属性的值。
-class Model(dict, metaclass = ModelMetaclass):
-    def __init__(self, **kw):
-        super(Model, self).__init__(**kw)
-
-    def __getattr__(self, key):
-        try:
-            return self[key]
-        except KeyError:
-            raise AttributeError(r"'Model' object has no attribute '%s'" % key)
-
-    def __setattr__(self, key, value):
-        self[key] = value
-
-    def getValue(self, key):
-        return getattr(self, key, None)
-
-    def getValueOrDefault(self, key):
-        value = getattr(self, key, None)
-        if value is None:
-            field = self.__mappings__[key]
-            if field.default is not None:
-                value = field.default() if callable(field.default) else field.default
-                logging.debug('using default value for %s: %s' % (key, field.default))
-                setattr(self, key, value)
-        return value
-
-    #classmethod修饰符对应的函数不需要实例化，不需要self参数，第一个参数是
-    #表示自身类的cls参数，可以用来调用类的属性、方法、实例化对象等等。
-    @classmethod
-    @asyncio.coroutine
-    def findAll(cls, where = None, args = None, **kw):
-        #' find objects by where clause.'
-        sql = [cls.__select__]
-        if where:
-            sql.append('where')
-            sql.append(where)
-        if args is None:
-            args = []
-        orderBy = kw.get('orderBy', None)
-        if orderBy:
-            sql.append('order by')
-            sql.append(orderBy)
-        limit = kw.get('limit', None)
-        if limit is not None:
-            sql.append('limit')
-            if isinstance(limit, int):
-                sql.append('?, ?')
-                args.extend(limit)
-            else:
-                raise ValueError('Invalid limit value: %s' % str(limit))
-        rs = yield from select(' '.join(sql), args)
-        return [cls(**r) for r in rs]
-
-    @classmethod
-    @asyncio.coroutine
-    def findNumber(cls, selectField, where = None, args = None):
-        #find number by select and where.
-        sql = ['select %s _num_ from `%s`' % (selectField, cls.__table__)]
-        if where:
-            sql.append('where')
-            sql.append(where)
-        rs = yield from select(' '.join(sql), args, 1)
-        if len(rs) == 0:
-            return None
-        return rs[0]['_num_']
-
-    @classmethod
-    @asyncio.coroutine
-    def find(cls, pk):
-        # find object by primary key, pk for primary key
-        res = yield from select('%s where `%s`=?' % (cls.__select__, cls.__primary_key__), [pk], 1)
-        if len(rs) == 0:
-            return None
-        return cls(**rs[0])
-
-    @asyncio.coroutine
-    def save(self):
-        args = list(map(self.getValueOrDefault, self.__fields__))
-        args.append(self.getValueOrDefault(self.__primary_key__))
-        rows = yield from execute(self.__insert__, args)
-        if rows != 1:
-            logging.warn("failed to insert record: affected rows: %s" % rows)
-
-    @asyncio.coroutine
-    def update(self):
-        args = list(map(self.getValue, self.__fields__))
-        args.append(self.getValue(self.__primary_key__))
-        rows = yield from execute(self.__update__, args)
-        if rows != 1:
-            logging.warn("failed to update by primary_key: affetcted rows: %s" % rows)
-
-    @asyncio.coroutine
-    def remove(self):
-        args = [self.getValue(self.__primary_key__)]
-        rows = yield from execute(self.__delete__, args)
-        if rows != 1:
-            logging.warn("failed to delete by primary_key: affected rows: %s" % rows)
-
-
-
-
+    def __init__(self, name = None, primary_key = False, default = None):
+        super().__init__(name, "real", primary_key, default)
 
 
