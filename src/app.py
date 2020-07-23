@@ -4,7 +4,7 @@
 # > Email       : lunar_ubuntu@qq.com
 # > Create Time: Wed 22 Jul 2020 04:50:29 PM CST
 
-import logging; logging.basicConfig(format = "%(levelname)-8s [%(filename)s: %(lineno)d] %(message)s")
+import logging; logging.basicConfig(format = "%(levelname)-8s [%(filename)s: %(lineno)d] %(message)s", level = logging.INFO)
 
 import orm
 import asyncio, os, json, time
@@ -103,7 +103,7 @@ async def response_factory(app, handler):
                 return resp
             else:
                 res['__user__'] = request.__user__
-                resp = web.Response(body = app['__templating__'].get_template(template).reader(**res).encode('utf-8'))
+                resp = web.Response(body = app['__templating__'].get_template(template).render(**res).encode('utf-8'))
                 resp.content_type = 'text/html;charset=utf-8'
                 return resp
         # default:

@@ -7,7 +7,7 @@ __author__ = 'Michael Liao'
 
 import re, time, json, hashlib, base64, asyncio
 
-import logging; logging.basicConfig(format = '%(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
+import logging; logging.basicConfig(format = '%(levelname)-8s [%(filename)s:%(lineno)d] %(message)s', level=logging.INFO)
 import markdown2
 
 from aiohttp import web
@@ -15,8 +15,10 @@ from aiohttp import web
 from web_frame import get, post
 from apis import Page, APIValueError, APIResourceNotFoundError
 
-from models import User, Comment, Blog, next_uid
+#from models import User, Comment, Blog, next_uid
+from models import Blog,User,Comment,next_id
 from config import configs
+
 
 COOKIE_NAME = 'awesession'
 _COOKIE_KEY = configs['session']['secret']
