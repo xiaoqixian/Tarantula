@@ -4,7 +4,7 @@
 # > Email       : lunar_ubuntu@qq.com
 # > Create Time: Tue 21 Jul 2020 05:58:38 PM CST
 
-from orm import StringField, IntegerField, TextField, BoolField, FloatField
+from orm import Field, StringField, IntegerField, TextField, BoolField, FloatField
 import logging; logging.basicConfig(format = "%(levelname)-8s[%(filename)s:%(lineno)d] %(message)s", level = logging.INFO)
 import time, uuid
 

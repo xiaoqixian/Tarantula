@@ -69,7 +69,7 @@ async def execute(sql, args, autocommit = True):
                 await conn.commit()
         except BaseException as e:
             if not autocommit:
-                await from conn.rollback()
+                await conn.rollback()
             raise
         return affected
 

@@ -5,6 +5,11 @@
 # > Create Time: Tue 21 Jul 2020 11:00:10 PM CST
 
 configs = {
+    'server': {
+        'localhost': '127.0.0.1',
+        'publichost': '0.0.0.0',
+        'port': 9900
+    },
     'debug': True,
     'db': {
         'host': '127.0.0.1',
@@ -13,5 +18,8 @@ configs = {
         'password': 'lunar',
         'db': 'tara'
     },
-    'admin_email': ['lunar_ubuntu@qq.com']
+    'admin_email': ['lunar_ubuntu@qq.com'],
+    'session': {
+        'secret': 'Awesome'
+    }
 }
