@@ -18,7 +18,7 @@ configs = {
         'password': 'lunar',
         'db': 'tara'
     },
-    'admin_email': ['lunar_ubuntu@qq.com'],
+    'admin_emails': ['lunar_ubuntu@qq.com'],
     'session': {
         'secret': 'Awesome'
     }

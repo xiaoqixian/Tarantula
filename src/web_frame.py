@@ -166,6 +166,8 @@ class RequestHandler:
                     logging.warn("Duplicate arg name in named arg and kw args: %s" % k)
                 kw[k] = v
         if self.has_request_args:
+            kw['request'] = request
+        if self.has_request_args:
             for name in self.required_kw_args:
                 if not name in kw:
                     return web.HTTPBadRequest("missing argument: %s" % name)

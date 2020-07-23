@@ -159,7 +159,7 @@ def manage():
 
 @get('/manage/')
 def manage():
-    pass
+    return 'redirect:/manage/blogs'
 
 @get('/manage/comments')
 def manage_comments(*, page='1'):
